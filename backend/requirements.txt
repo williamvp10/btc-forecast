@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+psycopg[binary]
+alembic
+torch
+pandas
+numpy
+python-dotenv
+requests
+pytest
+httpx
+yfinance
