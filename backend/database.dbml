@@ -1,0 +1,166 @@
+// BTC Forecast — esquema DB (PostgreSQL)
+// Fuente de verdad: modelos SQLAlchemy en backend/app/db/models + migraciones Alembic en backend/alembic/versions
+// DBML docs: https://dbml.dbdiagram.io/docs
+
+Table markets {
+  id int [pk, increment]
+  symbol varchar [not null]
+  base_asset varchar [not null]
+  quote_asset varchar [not null]
+  source varchar [not null]
+
+  Indexes {
+    (symbol) [unique, name: "uq_markets_symbol"]
+    (symbol) [name: "ix_markets_symbol"]
+    (id) [name: "ix_markets_id"]
+  }
+}
+
+Table candles {
+  id int [pk, increment]
+  market_id int [not null]
+  interval varchar [not null, note: "e.g. 1d"]
+  open_time timestamp [not null, note: "timestamptz UTC"]
+
+  open double [not null]
+  high double [not null]
+  low double [not null]
+  close double [not null]
+  volume double [not null]
+
+  Note: "Checks: high >= GREATEST(open, close); low <= LEAST(open, close); volume >= 0"
+
+  Indexes {
+    (market_id, interval, open_time) [unique, name: "uq_candle_market_interval_time"]
+    (market_id) [name: "ix_candles_market_id"]
+    (interval) [name: "ix_candles_interval"]
+    (open_time) [name: "ix_candles_open_time"]
+    (id) [name: "ix_candles_id"]
+  }
+}
+
+Table fgi_daily {
+  id int [pk, increment]
+  open_time timestamp [not null, note: "timestamptz UTC"]
+  fgi int
+  fgi_norm double
+
+  Indexes {
+    (open_time) [unique, name: "uq_fgi_daily_open_time"]
+    (open_time) [name: "ix_fgi_daily_open_time"]
+    (id) [name: "ix_fgi_daily_id"]
+  }
+}
+
+Table macro_daily {
+  id int [pk, increment]
+  open_time timestamp [not null, note: "timestamptz UTC"]
+
+  sp500 double
+  log_ret_sp500 double
+  vol_7d_sp500 double
+
+  dxy double
+  log_ret_dxy double
+  vol_7d_dxy double
+
+  vix double
+  log_ret_vix double
+  vol_7d_vix double
+
+  gold double
+  log_ret_gold double
+  vol_7d_gold double
+
+  Indexes {
+    (open_time) [unique, name: "uq_macro_daily_open_time"]
+    (open_time) [name: "ix_macro_daily_open_time"]
+    (id) [name: "ix_macro_daily_id"]
+  }
+}
+
+Table features {
+  id int [pk, increment]
+  market_id int [not null]
+  interval varchar [not null]
+  open_time timestamp [not null, note: "timestamptz UTC"]
+  feature_set varchar [not null, note: "tech|full"]
+  values jsonb [not null, note: "{feature_name: value}"]
+
+  Indexes {
+    (market_id, interval, open_time, feature_set) [unique, name: "uq_feature_market_interval_time_set"]
+    (market_id) [name: "ix_features_market_id"]
+    (interval) [name: "ix_features_interval"]
+    (open_time) [name: "ix_features_open_time"]
+    (feature_set) [name: "ix_features_feature_set"]
+    (id) [name: "ix_features_id"]
+  }
+}
+
+Table model_artifacts {
+  id uuid [pk, note: "uuid"]
+  market_id int [not null]
+  interval varchar [not null]
+  name varchar [not null]
+  trained_at timestamp [not null, note: "timestamptz UTC"]
+
+  data_start timestamp [not null, note: "timestamptz UTC"]
+  data_end timestamp [not null, note: "timestamptz UTC"]
+
+  target varchar [not null, note: "e.g. ohlcv_structured"]
+  feature_set varchar [not null]
+  window_size_days int [not null]
+  horizon_days int [not null]
+
+  storage_provider varchar [not null, note: "local|s3|gcs"]
+  storage_uri varchar [not null]
+  checksum varchar [not null]
+
+  training_params jsonb
+  metrics jsonb
+
+  is_active boolean [not null, note: "true para el modelo vigente"]
+
+  Indexes {
+    (id) [name: "ix_model_artifacts_id"]
+    (market_id) [name: "ix_model_artifacts_market_id"]
+    (interval) [name: "ix_model_artifacts_interval"]
+    (name) [name: "ix_model_artifacts_name"]
+    (is_active) [name: "ix_model_artifacts_is_active"]
+  }
+}
+
+Table predictions {
+  id uuid [pk, note: "uuid"]
+  model_id uuid [not null]
+  market_id int [not null]
+
+  as_of_time timestamp [not null, note: "timestamptz UTC — último día de datos usado (corte)"]
+  target_time timestamp [not null, note: "timestamptz UTC — fecha objetivo del OHLCV predicho"]
+  horizon_days int [not null, note: "1..7"]
+  generated_at timestamp [not null, note: "timestamptz UTC, default now()"]
+
+  pred_open double [not null]
+  pred_high double [not null]
+  pred_low double [not null]
+  pred_close double [not null]
+  pred_volume double [not null]
+
+  pred_components jsonb [note: "componentes estructurados opcionales del modelo"]
+
+  Indexes {
+    (model_id, market_id, as_of_time, target_time) [unique, name: "uq_prediction"]
+    (id) [name: "ix_predictions_id"]
+    (model_id) [name: "ix_predictions_model_id"]
+    (market_id) [name: "ix_predictions_market_id"]
+    (as_of_time) [name: "ix_predictions_as_of_time"]
+    (target_time) [name: "ix_predictions_target_time"]
+    (generated_at) [name: "ix_predictions_generated_at"]
+  }
+}
+
+Ref: candles.market_id > markets.id
+Ref: features.market_id > markets.id
+Ref: model_artifacts.market_id > markets.id
+Ref: predictions.market_id > markets.id
+Ref: predictions.model_id > model_artifacts.id
