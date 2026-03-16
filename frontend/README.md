@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend — BTC Forecast (MVP)
 
-## Getting Started
+Aplicación web del MVP para visualizar histórico OHLCV y predicciones del backend. El frontend consume datos exclusivamente desde la API (no calcula features ni predicciones en el cliente) y presenta un dashboard con look “TradingView-like” para velas, más un apartado de entrenamiento/estado para trazabilidad mínima.
 
-First, run the development server:
 
+## Alcance (MVP)
+- Navegación en una sola ruta (`/`) con Tabs:
+  - Dashboard (mercado + predicción + gráfico)
+  - Entrenamiento & Estado (entrenar bajo demanda + trazabilidad)
+- Predicción 1 día (t+1) y proyección 7 días (t+1..t+7) solo para visualización.
+- Estados claros de carga/vacío/error y validación básica antes de renderizar series.
+
+## Stack
+- Next.js (App Router) + React + TypeScript.
+- Tailwind CSS + shadcn/ui (Radix).
+- Charts:
+  - Velas/zoom/pan: `lightweight-charts`.
+  - Componentes UI y overlays: shadcn/ui.
+
+## Integración con el backend
+Durante desarrollo, Next.js actúa como proxy hacia el backend mediante rewrites:
+- `/api/*` → `${BACKEND_URL}/api/*`
+- `/health/*` → `${BACKEND_URL}/health/*`
+
+Configura `BACKEND_URL` (por defecto `http://localhost:8000`) para apuntar a tu backend local/remoto.
+
+## Ejecución local
+
+### Requisitos
+- Node.js (según tu entorno) y un backend accesible.
+
+### Instalación
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Configuración
+Crea un `.env.local` en `frontend/`:
+```bash
+BACKEND_URL=http://localhost:8000
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Arranque
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Abrir:
+- `http://localhost:3000`
 
-## Learn More
+## Scripts
+```bash
+npm run lint
+npm run test
+npm run build
+npm run start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Estructura del proyecto (frontend)
+- `src/app/page.tsx`: página principal con Tabs (Dashboard / Entrenamiento & Estado).
+- `src/components/candles-chart.tsx`: gráfico principal de velas (real + predicción/proyección).
+- `src/lib/api.ts`: cliente de API (rutas `/api/v1/*` vía proxy del frontend).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Nota de producto
+La proyección semanal (7 días) se muestra únicamente como visualización y no constituye recomendación financiera.
