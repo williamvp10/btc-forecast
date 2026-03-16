@@ -17,6 +17,7 @@ def get_candles(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     limit: int = 1000,
+    order: str = "asc",
     db: Session = Depends(deps.get_db)
 ):
     m = db.query(Market).filter(Market.symbol == symbol).first()
@@ -32,7 +33,14 @@ def get_candles(
         query = query.filter(Candle.open_time >= start)
     if end:
         query = query.filter(Candle.open_time <= end)
-        
+
+    if order not in ["asc", "desc"]:
+        raise HTTPException(status_code=400, detail="order must be asc or desc")
+
+    if order == "desc":
+        rows = query.order_by(Candle.open_time.desc()).limit(limit).all()
+        return list(reversed(rows))
+
     query = query.order_by(Candle.open_time.asc()).limit(limit)
     return query.all()
 

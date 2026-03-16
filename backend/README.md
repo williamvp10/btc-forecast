@@ -209,6 +209,12 @@ La actualización de OHLCV (CoinDesk) + FGI (alternative.me) + macro (Yahoo Fina
   - Si ya existe predicción para el último `as_of_time` disponible (y todos los target_time requeridos): la retorna (cached).
   - Si no: genera la trayectoria autoregresiva (t+1..t+h), la persiste en DB y la retorna.
 
+Notas de coherencia OHLCV:
+- Anti-gap: `pred_open` se fija al `close` de la vela previa (real o predicha) para evitar discontinuidades entre velas consecutivas en la visualización.
+  - Esto se aplica solo a la reconstrucción de niveles en inferencia (servicio de predicción), sin afectar el entrenamiento ni otros módulos.
+  - El componente estructurado `gap_open` puede seguir registrándose en `pred_components` como traza del modelo, pero no se usa para el nivel `open` retornado.
+  - Si existen predicciones cacheadas con `pred_open` distinto, el servicio las normaliza al servirlas para mantener la coherencia.
+
 Ejemplo:
 ```bash
 curl -X POST 'http://127.0.0.1:8000/api/v1/predict' \

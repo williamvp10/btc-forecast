@@ -1,14 +1,16 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.api import deps
 from app.schemas.train_predict import TrainRequest, TrainResponse, PredictRequest, PredictResponse
+from app.schemas.model import LatestModelResponse
 from app.services.pipeline import refresh_all_and_features
 from app.services.ml.training import train_model
 from app.services.ml.inference import predict_horizon, get_active_model
 from app.db.models.metadata import Market
+from app.db.models.ml import ModelArtifact
 
 
 router = APIRouter()
@@ -131,3 +133,52 @@ def predict(req: PredictRequest, db: Session = Depends(deps.get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/model/latest", response_model=LatestModelResponse)
+def latest_model(
+    response: Response,
+    symbol: str = "XBX-USD",
+    interval: str = "1d",
+    active_only: bool = True,
+    db: Session = Depends(deps.get_db),
+):
+    if interval != "1d":
+        raise HTTPException(status_code=400, detail="Only interval=1d is supported")
+
+    m = db.query(Market).filter(Market.symbol == symbol).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="Market not found")
+
+    q = db.query(ModelArtifact).filter(
+        ModelArtifact.market_id == m.id,
+        ModelArtifact.interval == interval,
+        ModelArtifact.target == "ohlcv_structured",
+    )
+    if active_only:
+        q = q.filter(ModelArtifact.is_active == True)
+    artifact = q.order_by(ModelArtifact.trained_at.desc()).first()
+    if not artifact:
+        raise HTTPException(status_code=404, detail="No trained model found")
+
+    response.headers["Cache-Control"] = "no-store"
+
+    return {
+        "status": "success",
+        "model": {
+            "model_id": str(artifact.id),
+            "symbol": symbol,
+            "interval": interval,
+            "name": artifact.name,
+            "trained_at": artifact.trained_at,
+            "data_start": artifact.data_start,
+            "data_end": artifact.data_end,
+            "target": artifact.target,
+            "feature_set": artifact.feature_set,
+            "window_size_days": artifact.window_size_days,
+            "horizon_days": artifact.horizon_days,
+            "is_active": bool(artifact.is_active),
+            "metrics": artifact.metrics or {},
+            "training_params": artifact.training_params or None,
+        },
+    }

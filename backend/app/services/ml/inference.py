@@ -34,14 +34,24 @@ def _reconstruct_levels(close_t: float, comps: np.ndarray) -> dict:
     high_excess = float(np.clip(_finite_or_zero(high_excess), -20.0, 20.0))
     low_excess = float(np.clip(_finite_or_zero(low_excess), -20.0, 20.0))
     logvol = float(np.clip(_finite_or_zero(logvol), -20.0, 20.0))
-    open_tp1 = float(close_t * np.exp(gap_open))
-    close_tp1 = float(close_t * np.exp(logret_close))
-    high_tp1 = float(max(open_tp1, close_tp1) + np.expm1(high_excess))
-    low_tp1 = float(min(open_tp1, close_tp1) - np.expm1(low_excess))
+    base_close = _finite_or_none(close_t)
+    if base_close is None:
+        return {"open": 0.0, "high": 0.0, "low": 0.0, "close": 0.0, "volume": 0.0}
+
+    open_tp1 = float(base_close)
+    close_tp1 = float(base_close * np.exp(logret_close))
+    body_max = float(max(open_tp1, close_tp1))
+    body_min = float(min(open_tp1, close_tp1))
+    high_tp1 = float(body_max + np.expm1(high_excess))
+    low_tp1 = float(body_min - np.expm1(low_excess))
+    if high_tp1 < body_max:
+        high_tp1 = body_max
+    if low_tp1 > body_min:
+        low_tp1 = body_min
     volume_tp1 = float(max(np.expm1(logvol), 0.0))
     levels = {"open": open_tp1, "high": high_tp1, "low": low_tp1, "close": close_tp1, "volume": volume_tp1}
     if not all(np.isfinite([levels["open"], levels["high"], levels["low"], levels["close"], levels["volume"]])):
-        v = float(close_t)
+        v = float(base_close)
         return {"open": v, "high": v, "low": v, "close": v, "volume": 0.0}
     return levels
 
@@ -114,6 +124,19 @@ def predict_next_day(db: Session, *, symbol: str = "XBX-USD", interval: str = "1
         .first()
     )
     if existing:
+        prev_close = _finite_or_none(last_candle.close)
+        if prev_close is not None:
+            if _finite_or_none(existing.pred_open) != float(prev_close):
+                existing.pred_open = float(prev_close)
+                body_max = max(existing.pred_open, float(existing.pred_close))
+                body_min = min(existing.pred_open, float(existing.pred_close))
+                if float(existing.pred_high) < body_max:
+                    existing.pred_high = body_max
+                if float(existing.pred_low) > body_min:
+                    existing.pred_low = body_min
+                db.add(existing)
+                db.commit()
+                db.refresh(existing)
         return existing
 
     feats = (
@@ -274,6 +297,7 @@ def predict_horizon(
 
     preds: list[Prediction] = []
     created = 0
+    prev_close_for_gap = _finite_or_none(last_candle.close)
     for step in range(1, int(horizon_days) + 1):
         target_time = (pd.to_datetime(as_of_time, utc=True) + pd.Timedelta(days=step)).to_pydatetime()
 
@@ -288,7 +312,19 @@ def predict_horizon(
             .first()
         )
         if existing:
+            if prev_close_for_gap is not None:
+                if _finite_or_none(existing.pred_open) != float(prev_close_for_gap):
+                    existing.pred_open = float(prev_close_for_gap)
+                    body_max = max(existing.pred_open, float(existing.pred_close))
+                    body_min = min(existing.pred_open, float(existing.pred_close))
+                    if float(existing.pred_high) < body_max:
+                        existing.pred_high = body_max
+                    if float(existing.pred_low) > body_min:
+                        existing.pred_low = body_min
+                    db.add(existing)
+                    db.flush()
             preds.append(existing)
+            prev_close_for_gap = _finite_or_none(existing.pred_close)
             candles_df = pd.concat(
                 [
                     candles_df,
@@ -349,6 +385,7 @@ def predict_horizon(
         db.flush()
         preds.append(pred)
         created += 1
+        prev_close_for_gap = _finite_or_none(pred.pred_close)
 
         candles_df = pd.concat(
             [
