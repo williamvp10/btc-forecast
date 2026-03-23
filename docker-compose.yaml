@@ -1,0 +1,91 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-btc_forecast}
+      - MYSQL_USER=${MYSQL_USER:-btc_forecast}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-btc_forecast}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1.5G
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      - SQLALCHEMY_DATABASE_URI=mysql+pymysql://${MYSQL_USER:-btc_forecast}:${MYSQL_PASSWORD:-btc_forecast}@mysql:3306/${MYSQL_DATABASE:-btc_forecast}
+      - COINDESK_API_KEY=${COINDESK_API_KEY}
+      - COINDESK_MARKET=${COINDESK_MARKET:-sda}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - backend_model_store:/app/model_store
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+    networks:
+      - default
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+volumes:
+  mysql_data:
+  backend_model_store:
+
+networks:
+  default:
+    name: dokploy-network
+    external: true
