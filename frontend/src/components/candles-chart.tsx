@@ -361,7 +361,7 @@ function CandlesChart({ candles, prediction, hasMore = false, loadingMore = fals
 
     candleSeries.setData(candleData)
     volSeries.setData([...volData, ...volPred])
-    const firstNow = candleData.length ? candleData[0].time : null
+    const firstNow = candles.length ? toUtcTs(candles[0].open_time) : null
     const isPrepend = prevFirst != null && firstNow != null && firstNow < prevFirst
     prevFirstRef.current = firstNow
 
