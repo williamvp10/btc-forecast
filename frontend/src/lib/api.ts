@@ -4,12 +4,13 @@ type ProblemDetails = {
   errors?: unknown
 }
 
-const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000").replace(/\/+$/, "")
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "").replace(/\/+$/, "")
 
 function withBase(path: string): string {
   if (path.startsWith("http://") || path.startsWith("https://")) return path
-  if (!path.startsWith("/")) return `${BACKEND_URL}/${path}`
-  return `${BACKEND_URL}${path}`
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`
+  if (!BACKEND_URL) return normalizedPath
+  return `${BACKEND_URL}${normalizedPath}`
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
