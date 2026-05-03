@@ -100,6 +100,30 @@ export type TrainResponse = {
   training_params?: Record<string, unknown> | null
 }
 
+export type TrainAcceptedResponse = {
+  status: string
+  job_id: string
+  message: string
+  created_at: string
+  symbol: string
+  interval: string
+  feature_set: string
+  existing_job: boolean
+}
+
+export type TrainJobStatusResponse = {
+  job_id: string
+  status: "queued" | "running" | "success" | "failed"
+  created_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  symbol: string
+  interval: string
+  feature_set: string
+  error?: string | null
+  result?: TrainResponse | null
+}
+
 export type LatestModelItem = {
   model_id: string
   symbol: string
@@ -149,11 +173,15 @@ export async function getCandles(params: {
   return fetchJson(`/api/v1/market/candles?${qs.toString()}`, { cache: "no-store" })
 }
 
-export async function trainModel(req: TrainRequest): Promise<TrainResponse> {
+export async function trainModel(req: TrainRequest): Promise<TrainAcceptedResponse> {
   return fetchJson("/api/v1/train", {
     method: "POST",
     body: JSON.stringify(req),
   })
+}
+
+export async function getTrainJobStatus(jobId: string): Promise<TrainJobStatusResponse> {
+  return fetchJson(`/api/v1/train/jobs/${jobId}`, { cache: "no-store" })
 }
 
 export async function predict(req: PredictRequest): Promise<PredictResponse> {

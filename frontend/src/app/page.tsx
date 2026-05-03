@@ -23,6 +23,7 @@ import {
   getHealthLive,
   getHealthReady,
   getLatestModel,
+  getTrainJobStatus,
   predict,
   trainModel,
   type Candle,
@@ -80,12 +81,16 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
 
   const trainTimersRef = React.useRef<number[]>([])
 
+  const clearTrainTimers = React.useCallback(() => {
+    trainTimersRef.current.forEach((id) => window.clearTimeout(id))
+    trainTimersRef.current = []
+  }, [])
+
   React.useEffect(() => {
     return () => {
-      trainTimersRef.current.forEach((id) => window.clearTimeout(id))
-      trainTimersRef.current = []
+      clearTrainTimers()
     }
-  }, [])
+  }, [clearTrainTimers])
 
   const [trainParams, setTrainParams] = React.useState({
     symbol: SYMBOL,
@@ -155,7 +160,7 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
     try {
       const start = new Date(Date.now() - DAYS_DEFAULT * 24 * 60 * 60 * 1000).toISOString()
       const end = new Date().toISOString()
-      const [candlesRes, _live, _ready, latestModel] = await Promise.all([
+      const [candlesRes, , , latestModel] = await Promise.all([
         getCandles({ symbol: SYMBOL, interval: INTERVAL, start, end, limit: 60, order: "desc" }),
         getHealthLive().then(
           () => setLiveOk(true),
@@ -226,14 +231,54 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
   const trainFeatures =
     asStringArray(trainMetrics?.features_used) || asStringArray(trainParamsObj?.feature_cols)
 
-  function startTrainProgress() {
-    setTrainStage("Iniciando entrenamiento...")
-    trainTimersRef.current.forEach((id) => window.clearTimeout(id))
-    trainTimersRef.current = [
-      window.setTimeout(() => setTrainStage("Procesando datos..."), 600),
-      window.setTimeout(() => setTrainStage("Optimizando modelo..."), 1600),
-    ]
-  }
+  const pollTrainJob = React.useCallback(
+    async (jobId: string, attempt = 0) => {
+      try {
+        const job = await getTrainJobStatus(jobId)
+
+        if (job.status === "queued") {
+          setTrainStage("Entrenamiento en cola...")
+          trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId), 1500))
+          return
+        }
+
+        if (job.status === "running") {
+          setTrainStage("Entrenando modelo...")
+          trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId), 3000))
+          return
+        }
+
+        clearTrainTimers()
+        setTrainLoading(false)
+        setTrainStage(null)
+
+        if (job.status === "success" && job.result) {
+          setLastTrain(job.result)
+          setTrainError(null)
+          setLastUpdatedAt(new Date().toISOString())
+          toast.success("Entrenamiento completado")
+          return
+        }
+
+        const msg = job.error || "El entrenamiento finalizo sin resultado"
+        setTrainError(msg)
+        toast.error(msg)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Error consultando el estado del entrenamiento"
+        if (attempt < 10) {
+          setTrainStage("Esperando estado del entrenamiento...")
+          trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId, attempt + 1), 3000))
+          return
+        }
+        clearTrainTimers()
+        setTrainLoading(false)
+        setTrainStage(null)
+        setTrainError(msg)
+        toast.error(msg)
+      }
+    },
+    [clearTrainTimers],
+  )
 
   async function handlePredict(horizonDays: number) {
     setPredictLoading(true)
@@ -254,9 +299,10 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
   async function handleTrain() {
     setTrainLoading(true)
     setTrainError(null)
-    startTrainProgress()
+    setTrainStage("Preparando entrenamiento...")
+    clearTrainTimers()
     try {
-      const res = await trainModel({
+      const job = await trainModel({
         symbol: trainParams.symbol,
         interval: trainParams.interval,
         feature_set: trainParams.feature_set,
@@ -271,17 +317,15 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
         seed: Number(trainParams.seed),
         holdout_from: trainParams.holdout_from,
       })
-      setLastTrain(res)
-      toast.success("Entrenamiento completado")
+      setTrainStage(job.existing_job ? "Entrenamiento ya en progreso..." : "Entrenamiento en cola...")
+      toast.success(job.message)
+      void pollTrainJob(job.job_id)
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error entrenando modelo"
       setTrainError(msg)
-      toast.error(msg)
-    } finally {
-      setTrainLoading(false)
       setTrainStage(null)
-      trainTimersRef.current.forEach((id) => window.clearTimeout(id))
-      trainTimersRef.current = []
+      setTrainLoading(false)
+      toast.error(msg)
     }
   }
 

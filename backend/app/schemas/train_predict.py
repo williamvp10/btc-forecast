@@ -31,6 +31,30 @@ class TrainResponse(BaseModel):
     training_params: Optional[Dict[str, Any]] = None
 
 
+class TrainAcceptedResponse(BaseModel):
+    status: str
+    job_id: str
+    message: str
+    created_at: datetime
+    symbol: str
+    interval: str
+    feature_set: str
+    existing_job: bool = False
+
+
+class TrainJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    symbol: str
+    interval: str
+    feature_set: str
+    error: Optional[str] = None
+    result: Optional[TrainResponse] = None
+
+
 class PredictRequest(BaseModel):
     symbol: str = Field(default="XBX-USD")
     interval: str = Field(default="1d")

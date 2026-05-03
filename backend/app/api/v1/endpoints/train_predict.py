@@ -1,14 +1,20 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api import deps
-from app.schemas.train_predict import TrainRequest, TrainResponse, PredictRequest, PredictResponse
+from app.schemas.train_predict import (
+    PredictRequest,
+    PredictResponse,
+    TrainAcceptedResponse,
+    TrainJobStatusResponse,
+    TrainRequest,
+)
 from app.schemas.model import LatestModelResponse
 from app.services.pipeline import refresh_all_and_features
-from app.services.ml.training import train_model
 from app.services.ml.inference import predict_horizon, get_active_model
+from app.services.ml.training_jobs import get_training_job, start_training_job
 from app.db.models.metadata import Market
 from app.db.models.ml import ModelArtifact
 
@@ -17,73 +23,20 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.post("/train", response_model=TrainResponse)
-def train(req: TrainRequest, db: Session = Depends(deps.get_db)):
+@router.post("/train", response_model=TrainAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+def train(req: TrainRequest):
     if req.interval != "1d":
         raise HTTPException(status_code=400, detail="Only interval=1d is supported")
 
-    try:
-        refresh_all_and_features(db, symbol=req.symbol, feature_set=req.feature_set)
-        db.commit()
-        artifact = train_model(
-            db,
-            symbol=req.symbol,
-            interval=req.interval,
-            feature_set=req.feature_set,
-            lookback=req.lookback,
-            lr=req.lr,
-            weight_decay=req.weight_decay,
-            batch_size=req.batch_size,
-            max_epochs=req.max_epochs,
-            min_epochs=req.min_epochs,
-            patience=req.patience,
-            min_delta=req.min_delta,
-            seed=req.seed,
-            holdout_from=req.holdout_from,
-        )
-        tp = artifact.training_params or {}
-        training_params = {
-            k: tp.get(k)
-            for k in [
-                "lookback",
-                "lr",
-                "weight_decay",
-                "batch_size",
-                "max_epochs",
-                "min_epochs",
-                "patience",
-                "min_delta",
-                "seed",
-                "holdout_from",
-                "in_features",
-                "optimizer",
-                "loss",
-                "feature_cols",
-                "model_hparams",
-            ]
-            if k in tp
-        }
-        return {
-            "status": "success",
-            "model_id": str(artifact.id),
-            "trained_at": artifact.trained_at,
-            "data_start": artifact.data_start,
-            "data_end": artifact.data_end,
-            "metrics": artifact.metrics or {},
-            "training_params": training_params,
-        }
-    except ValueError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        db.rollback()
-        logger.exception(
-            "Training failed for symbol=%s interval=%s feature_set=%s",
-            req.symbol,
-            req.interval,
-            req.feature_set,
-        )
-        raise HTTPException(status_code=500, detail=str(e))
+    return start_training_job(req)
+
+
+@router.get("/train/jobs/{job_id}", response_model=TrainJobStatusResponse)
+def train_job_status(job_id: str):
+    job = get_training_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+    return job
 
 
 @router.post("/predict", response_model=PredictResponse)
