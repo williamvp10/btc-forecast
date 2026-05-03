@@ -17,12 +17,16 @@ Aplicación web del MVP para visualizar histórico OHLCV y predicciones del back
   - Velas/zoom/pan: `lightweight-charts`.
   - Componentes UI y overlays: shadcn/ui.
 
-## Integración con el backend
-Durante desarrollo, Next.js actúa como proxy hacia el backend mediante rewrites:
+## Integracion con el backend
+Durante desarrollo y produccion, Next.js puede actuar como proxy hacia el backend mediante rewrites:
 - `/api/*` → `${BACKEND_URL}/api/*`
 - `/health/*` → `${BACKEND_URL}/health/*`
 
-Configura `BACKEND_URL` (por defecto `http://localhost:8000`) para apuntar a tu backend local/remoto.
+Configuracion recomendada:
+- `BACKEND_URL`: URL interna del backend vista desde el contenedor frontend. En Docker Compose debe ser `http://backend:8000`.
+- `NEXT_PUBLIC_BACKEND_URL`: dejar vacia para usar el mismo dominio del frontend y evitar CORS o referencias a `localhost`.
+
+En produccion con un unico dominio publico, el navegador debe consumir `/api/*` y `/health/*` sobre ese mismo host; Next.js reenviara esas rutas al backend.
 
 ## Ejecución local
 
