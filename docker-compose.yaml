@@ -1,20 +1,19 @@
 services:
-  mysql:
-    image: mysql:8.0
+  postgres:
+    image: postgres:16-alpine
     environment:
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-btc_forecast}
-      - MYSQL_USER=${MYSQL_USER:-btc_forecast}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-btc_forecast}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root}
+      - POSTGRES_DB=${POSTGRES_DB:-btc_forecast}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
     networks:
       - default
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$${MYSQL_ROOT_PASSWORD} --silent || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -h localhost -U $${POSTGRES_USER} -d $${POSTGRES_DB} || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -29,12 +28,12 @@ services:
     build:
       context: ./backend
     environment:
-      - SQLALCHEMY_DATABASE_URI=mysql+pymysql://${MYSQL_USER:-btc_forecast}:${MYSQL_PASSWORD:-btc_forecast}@mysql:3306/${MYSQL_DATABASE:-btc_forecast}
+      - SQLALCHEMY_DATABASE_URI=postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-btc_forecast}
       - COINDESK_API_KEY=${COINDESK_API_KEY}
       - COINDESK_MARKET=${COINDESK_MARKET:-sda}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     volumes:
       - backend_model_store:/app/model_store
@@ -82,7 +81,7 @@ services:
           memory: 1G
 
 volumes:
-  mysql_data:
+  postgres_data:
   backend_model_store:
 
 networks:
