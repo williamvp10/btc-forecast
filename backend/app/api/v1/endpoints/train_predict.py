@@ -1,4 +1,4 @@
-from datetime import timedelta
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.db.models.ml import ModelArtifact
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/train", response_model=TrainResponse)
@@ -76,7 +77,13 @@ def train(req: TrainRequest, db: Session = Depends(deps.get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Training failed")
+        logger.exception(
+            "Training failed for symbol=%s interval=%s feature_set=%s",
+            req.symbol,
+            req.interval,
+            req.feature_set,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/predict", response_model=PredictResponse)
@@ -132,6 +139,12 @@ def predict(req: PredictRequest, db: Session = Depends(deps.get_db)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         db.rollback()
+        logger.exception(
+            "Prediction failed for symbol=%s interval=%s horizon_days=%s",
+            req.symbol,
+            req.interval,
+            req.horizon_days,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

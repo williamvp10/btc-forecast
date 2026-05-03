@@ -10,25 +10,14 @@ from alembic.config import Config
 
 BASE_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
-TEST_DB_URL = os.environ.get("SQLALCHEMY_DATABASE_URI") or "postgresql+psycopg://postgres:root@localhost/btc_forecast_test"
+DEFAULT_SQLITE_PATH = BASE_DIR / "btc_forecast_test.sqlite"
+TEST_DB_URL = os.environ.get("SQLALCHEMY_DATABASE_URI") or f"sqlite+pysqlite:///{DEFAULT_SQLITE_PATH}"
 os.environ["SQLALCHEMY_DATABASE_URI"] = TEST_DB_URL
-
-def _ensure_test_db(db_url: str, db_name: str) -> None:
-    admin_url = db_url.rsplit("/", 1)[0] + "/postgres"
-    engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    with engine.connect() as conn:
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :name"),
-            {"name": db_name},
-        ).scalar()
-        if not exists:
-            conn.execute(text(f'CREATE DATABASE "{db_name}"'))
-
 
 @pytest.fixture(scope="session", autouse=True)
 def configure_test_db():
-    db_name = "btc_forecast_test"
-    _ensure_test_db(TEST_DB_URL, db_name)
+    if TEST_DB_URL.startswith("sqlite"):
+        DEFAULT_SQLITE_PATH.unlink(missing_ok=True)
 
     alembic_ini = str(BASE_DIR / "alembic.ini")
     cfg = Config(alembic_ini)
@@ -38,17 +27,26 @@ def configure_test_db():
 
 @pytest.fixture()
 def db_engine() -> Engine:
-    return create_engine(TEST_DB_URL)
+    connect_args = {"check_same_thread": False} if TEST_DB_URL.startswith("sqlite") else {}
+    return create_engine(TEST_DB_URL, connect_args=connect_args)
 
 
 @pytest.fixture(autouse=True)
 def clean_db(db_engine: Engine):
+    tables = ["predictions", "model_artifacts", "features", "candles", "fgi_daily", "macro_daily", "markets"]
     with db_engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE predictions RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE model_artifacts RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE features RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE candles RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE fgi_daily RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE macro_daily RESTART IDENTITY CASCADE"))
-        conn.execute(text("TRUNCATE TABLE markets RESTART IDENTITY CASCADE"))
+        dialect = conn.engine.dialect.name
+        if dialect == "sqlite":
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
+            for t in tables:
+                conn.execute(text(f"DELETE FROM {t}"))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
+        elif dialect == "mysql":
+            conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+            for t in tables:
+                conn.execute(text(f"TRUNCATE TABLE {t}"))
+            conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
+        else:
+            joined = ", ".join(tables)
+            conn.execute(text(f"TRUNCATE TABLE {joined} RESTART IDENTITY CASCADE"))
     yield
