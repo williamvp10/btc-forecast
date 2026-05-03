@@ -58,8 +58,12 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
     environment:
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+      - NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}
     depends_on:
       backend:
         condition: service_healthy
