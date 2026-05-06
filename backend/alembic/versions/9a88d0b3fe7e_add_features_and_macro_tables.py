@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '9a88d0b3fe7e'
@@ -46,7 +45,7 @@ def upgrade() -> None:
     sa.Column('interval', sa.String(), nullable=False),
     sa.Column('open_time', sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('feature_set', sa.String(), nullable=False),
-    sa.Column('values', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('values', sa.JSON(), nullable=False),
     sa.ForeignKeyConstraint(['market_id'], ['markets.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('market_id', 'interval', 'open_time', 'feature_set', name='uq_feature_market_interval_time_set')

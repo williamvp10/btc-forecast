@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -21,14 +20,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.execute("DROP TABLE IF EXISTS predictions CASCADE")
-    op.execute("DROP TABLE IF EXISTS model_metrics CASCADE")
-    op.execute("DROP TABLE IF EXISTS model_artifacts CASCADE")
-    op.execute("DROP TABLE IF EXISTS features CASCADE")
-    op.execute("DROP TABLE IF EXISTS candles CASCADE")
-    op.execute("DROP TABLE IF EXISTS symbols CASCADE")
-    op.execute("DROP TABLE IF EXISTS exchanges CASCADE")
-    op.execute("DROP TABLE IF EXISTS assets CASCADE")
+    op.execute("DROP TABLE IF EXISTS predictions")
+    op.execute("DROP TABLE IF EXISTS model_metrics")
+    op.execute("DROP TABLE IF EXISTS model_artifacts")
+    op.execute("DROP TABLE IF EXISTS features")
+    op.execute("DROP TABLE IF EXISTS candles")
+    op.execute("DROP TABLE IF EXISTS symbols")
+    op.execute("DROP TABLE IF EXISTS exchanges")
+    op.execute("DROP TABLE IF EXISTS assets")
 
     op.create_table(
         "markets",
@@ -54,8 +53,8 @@ def upgrade() -> None:
         sa.Column("low", sa.Float(), nullable=False),
         sa.Column("close", sa.Float(), nullable=False),
         sa.Column("volume", sa.Float(), nullable=False),
-        sa.CheckConstraint("high >= GREATEST(open, close)", name="check_high_max"),
-        sa.CheckConstraint("low <= LEAST(open, close)", name="check_low_min"),
+        sa.CheckConstraint("high >= open AND high >= close", name="check_high_max"),
+        sa.CheckConstraint("low <= open AND low <= close", name="check_low_min"),
         sa.CheckConstraint("volume >= 0", name="check_volume_positive"),
         sa.ForeignKeyConstraint(["market_id"], ["markets.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -80,7 +79,7 @@ def upgrade() -> None:
 
     op.create_table(
         "model_artifacts",
-        sa.Column("id", postgresql.UUID(), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("market_id", sa.Integer(), nullable=False),
         sa.Column("interval", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
@@ -106,8 +105,8 @@ def upgrade() -> None:
 
     op.create_table(
         "predictions",
-        sa.Column("id", postgresql.UUID(), nullable=False),
-        sa.Column("model_id", postgresql.UUID(), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("model_id", sa.String(length=36), nullable=False),
         sa.Column("market_id", sa.Integer(), nullable=False),
         sa.Column("as_of_time", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("target_time", sa.TIMESTAMP(timezone=True), nullable=False),
@@ -117,7 +116,7 @@ def upgrade() -> None:
         sa.Column("pred_low", sa.Float(), nullable=False),
         sa.Column("pred_close", sa.Float(), nullable=False),
         sa.Column("pred_volume", sa.Float(), nullable=False),
-        sa.Column("pred_components", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("pred_components", sa.JSON(), nullable=True),
         sa.ForeignKeyConstraint(["model_id"], ["model_artifacts.id"]),
         sa.ForeignKeyConstraint(["market_id"], ["markets.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -132,11 +131,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.execute("DROP TABLE IF EXISTS predictions CASCADE")
-    op.execute("DROP TABLE IF EXISTS model_artifacts CASCADE")
-    op.execute("DROP TABLE IF EXISTS fgi_daily CASCADE")
-    op.execute("DROP TABLE IF EXISTS candles CASCADE")
-    op.execute("DROP TABLE IF EXISTS markets CASCADE")
+    op.execute("DROP TABLE IF EXISTS predictions")
+    op.execute("DROP TABLE IF EXISTS model_artifacts")
+    op.execute("DROP TABLE IF EXISTS fgi_daily")
+    op.execute("DROP TABLE IF EXISTS candles")
+    op.execute("DROP TABLE IF EXISTS markets")
 
     op.create_table(
         "assets",
@@ -159,7 +158,7 @@ def downgrade() -> None:
 
     op.create_table(
         "model_artifacts",
-        sa.Column("id", postgresql.UUID(), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("trained_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("data_start", sa.TIMESTAMP(timezone=True), nullable=False),
@@ -181,7 +180,7 @@ def downgrade() -> None:
     op.create_table(
         "model_metrics",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("model_id", postgresql.UUID(), nullable=False),
+        sa.Column("model_id", sa.String(length=36), nullable=False),
         sa.Column("split", sa.String(), nullable=False),
         sa.Column("metric", sa.String(), nullable=False),
         sa.Column("value", sa.Float(), nullable=False),
@@ -218,8 +217,8 @@ def downgrade() -> None:
         sa.Column("low", sa.Float(), nullable=False),
         sa.Column("close", sa.Float(), nullable=False),
         sa.Column("volume", sa.Float(), nullable=False),
-        sa.CheckConstraint("high >= GREATEST(open, close)", name="check_high_max"),
-        sa.CheckConstraint("low <= LEAST(open, close)", name="check_low_min"),
+        sa.CheckConstraint("high >= open AND high >= close", name="check_high_max"),
+        sa.CheckConstraint("low <= open AND low <= close", name="check_low_min"),
         sa.CheckConstraint("volume >= 0", name="check_volume_positive"),
         sa.ForeignKeyConstraint(["symbol_id"], ["symbols.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -237,7 +236,7 @@ def downgrade() -> None:
         sa.Column("interval", sa.String(), nullable=False),
         sa.Column("open_time", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("feature_set", sa.String(), nullable=False),
-        sa.Column("values", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("values", sa.JSON(), nullable=False),
         sa.ForeignKeyConstraint(["symbol_id"], ["symbols.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("symbol_id", "interval", "open_time", "feature_set", name="uq_feature_symbol_interval_time_set"),
@@ -250,8 +249,8 @@ def downgrade() -> None:
 
     op.create_table(
         "predictions",
-        sa.Column("id", postgresql.UUID(), nullable=False),
-        sa.Column("model_id", postgresql.UUID(), nullable=False),
+        sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("model_id", sa.String(length=36), nullable=False),
         sa.Column("symbol_id", sa.Integer(), nullable=False),
         sa.Column("as_of_time", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("target_time", sa.TIMESTAMP(timezone=True), nullable=False),
@@ -261,7 +260,7 @@ def downgrade() -> None:
         sa.Column("pred_low", sa.Float(), nullable=False),
         sa.Column("pred_close", sa.Float(), nullable=False),
         sa.Column("pred_volume", sa.Float(), nullable=False),
-        sa.Column("pred_components", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("pred_components", sa.JSON(), nullable=True),
         sa.ForeignKeyConstraint(["model_id"], ["model_artifacts.id"]),
         sa.ForeignKeyConstraint(["symbol_id"], ["symbols.id"]),
         sa.PrimaryKeyConstraint("id"),

@@ -22,6 +22,9 @@ _lock = threading.Lock()
 class TrainingJob:
     job_id: str
     status: str
+    stage: str
+    message: str
+    progress_pct: float
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
@@ -29,6 +32,7 @@ class TrainingJob:
     interval: str
     feature_set: str
     error: str | None = None
+    stage_details: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
 
 
@@ -77,6 +81,9 @@ def _serialize(job: TrainingJob) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
         "status": job.status,
+        "stage": job.stage,
+        "message": job.message,
+        "progress_pct": job.progress_pct,
         "created_at": job.created_at,
         "started_at": job.started_at,
         "finished_at": job.finished_at,
@@ -84,6 +91,7 @@ def _serialize(job: TrainingJob) -> dict[str, Any]:
         "interval": job.interval,
         "feature_set": job.feature_set,
         "error": job.error,
+        "stage_details": job.stage_details,
         "result": job.result,
     }
 
@@ -135,10 +143,26 @@ def _update_training_job(job_id: str, **changes: Any) -> None:
 def _run_training_job(job_id: str, request_data: dict[str, Any]) -> None:
     req = TrainRequest(**request_data)
     db = SessionLocal()
-    _update_training_job(job_id, status="running", started_at=_utcnow(), error=None)
+    _update_training_job(
+        job_id,
+        status="running",
+        stage="refreshing_data",
+        message="Actualizando datos historicos y features...",
+        progress_pct=8.0,
+        started_at=_utcnow(),
+        error=None,
+        stage_details=None,
+    )
     try:
-        refresh_all_and_features(db, symbol=req.symbol, feature_set=req.feature_set)
+        refresh_summary = refresh_all_and_features(db, symbol=req.symbol, feature_set=req.feature_set)
         db.commit()
+        _update_training_job(
+            job_id,
+            stage="refresh_complete",
+            message="Datos historicos y features actualizados. Preparando entrenamiento...",
+            progress_pct=25.0,
+            stage_details=refresh_summary,
+        )
         artifact = train_model(
             db,
             symbol=req.symbol,
@@ -154,22 +178,43 @@ def _run_training_job(job_id: str, request_data: dict[str, Any]) -> None:
             min_delta=req.min_delta,
             seed=req.seed,
             holdout_from=req.holdout_from,
+            progress_callback=lambda payload: _update_training_job(job_id, status="running", **payload),
         )
         _update_training_job(
             job_id,
             status="success",
+            stage="completed",
+            message="Entrenamiento completado.",
+            progress_pct=100.0,
             finished_at=_utcnow(),
             error=None,
+            stage_details={"model_id": str(artifact.id)},
             result=_build_train_result(artifact),
         )
     except ValueError as exc:
         db.rollback()
         logger.warning("Training job failed validation for %s: %s", job_id, exc)
-        _update_training_job(job_id, status="failed", finished_at=_utcnow(), error=str(exc), result=None)
+        _update_training_job(
+            job_id,
+            status="failed",
+            stage="failed",
+            message="El entrenamiento fallo por validacion de datos.",
+            finished_at=_utcnow(),
+            error=str(exc),
+            result=None,
+        )
     except Exception as exc:
         db.rollback()
         logger.exception("Training job crashed for %s", job_id)
-        _update_training_job(job_id, status="failed", finished_at=_utcnow(), error=str(exc), result=None)
+        _update_training_job(
+            job_id,
+            status="failed",
+            stage="failed",
+            message="El entrenamiento fallo por un error interno.",
+            finished_at=_utcnow(),
+            error=str(exc),
+            result=None,
+        )
     finally:
         db.close()
 
@@ -191,12 +236,16 @@ def start_training_job(req: TrainRequest) -> dict[str, Any]:
     job = TrainingJob(
         job_id=str(uuid.uuid4()),
         status="queued",
+        stage="queued",
+        message="Esperando turno para entrenar...",
+        progress_pct=0.0,
         created_at=_utcnow(),
         started_at=None,
         finished_at=None,
         symbol=req.symbol,
         interval=req.interval,
         feature_set=req.feature_set,
+        stage_details=None,
     )
     with _lock:
         _jobs[job.job_id] = job

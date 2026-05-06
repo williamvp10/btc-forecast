@@ -45,6 +45,9 @@ class TrainAcceptedResponse(BaseModel):
 class TrainJobStatusResponse(BaseModel):
     job_id: str
     status: str
+    stage: str
+    message: str
+    progress_pct: float = 0.0
     created_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
@@ -52,6 +55,7 @@ class TrainJobStatusResponse(BaseModel):
     interval: str
     feature_set: str
     error: Optional[str] = None
+    stage_details: Optional[Dict[str, Any]] = None
     result: Optional[TrainResponse] = None
 
 

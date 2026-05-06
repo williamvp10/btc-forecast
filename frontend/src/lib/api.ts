@@ -114,6 +114,9 @@ export type TrainAcceptedResponse = {
 export type TrainJobStatusResponse = {
   job_id: string
   status: "queued" | "running" | "success" | "failed"
+  stage: string
+  message: string
+  progress_pct: number
   created_at: string
   started_at?: string | null
   finished_at?: string | null
@@ -121,6 +124,7 @@ export type TrainJobStatusResponse = {
   interval: string
   feature_set: string
   error?: string | null
+  stage_details?: Record<string, unknown> | null
   result?: TrainResponse | null
 }
 

@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'e7e0b6fa31d1'
@@ -37,7 +36,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_exchanges_id'), 'exchanges', ['id'], unique=False)
     op.create_index(op.f('ix_exchanges_name'), 'exchanges', ['name'], unique=True)
     op.create_table('model_artifacts',
-    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('trained_at', sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('data_start', sa.TIMESTAMP(timezone=True), nullable=False),
@@ -57,7 +56,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_model_artifacts_name'), 'model_artifacts', ['name'], unique=False)
     op.create_table('model_metrics',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('model_id', sa.UUID(), nullable=False),
+    sa.Column('model_id', sa.String(length=36), nullable=False),
     sa.Column('split', sa.String(), nullable=False),
     sa.Column('metric', sa.String(), nullable=False),
     sa.Column('value', sa.Float(), nullable=False),
@@ -90,8 +89,8 @@ def upgrade() -> None:
     sa.Column('low', sa.Float(), nullable=False),
     sa.Column('close', sa.Float(), nullable=False),
     sa.Column('volume', sa.Float(), nullable=False),
-    sa.CheckConstraint('high >= GREATEST(open, close)', name='check_high_max'),
-    sa.CheckConstraint('low <= LEAST(open, close)', name='check_low_min'),
+    sa.CheckConstraint('high >= open AND high >= close', name='check_high_max'),
+    sa.CheckConstraint('low <= open AND low <= close', name='check_low_min'),
     sa.CheckConstraint('volume >= 0', name='check_volume_positive'),
     sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id'], ),
     sa.PrimaryKeyConstraint('id'),
@@ -107,7 +106,7 @@ def upgrade() -> None:
     sa.Column('interval', sa.String(), nullable=False),
     sa.Column('open_time', sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('feature_set', sa.String(), nullable=False),
-    sa.Column('values', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('values', sa.JSON(), nullable=False),
     sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('symbol_id', 'interval', 'open_time', 'feature_set', name='uq_feature_symbol_interval_time_set')
@@ -118,8 +117,8 @@ def upgrade() -> None:
     op.create_index(op.f('ix_features_open_time'), 'features', ['open_time'], unique=False)
     op.create_index(op.f('ix_features_symbol_id'), 'features', ['symbol_id'], unique=False)
     op.create_table('predictions',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('model_id', sa.UUID(), nullable=False),
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('model_id', sa.String(length=36), nullable=False),
     sa.Column('symbol_id', sa.Integer(), nullable=False),
     sa.Column('as_of_time', sa.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('target_time', sa.TIMESTAMP(timezone=True), nullable=False),
@@ -129,7 +128,7 @@ def upgrade() -> None:
     sa.Column('pred_low', sa.Float(), nullable=False),
     sa.Column('pred_close', sa.Float(), nullable=False),
     sa.Column('pred_volume', sa.Float(), nullable=False),
-    sa.Column('pred_components', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('pred_components', sa.JSON(), nullable=True),
     sa.ForeignKeyConstraint(['model_id'], ['model_artifacts.id'], ),
     sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id'], ),
     sa.PrimaryKeyConstraint('id'),

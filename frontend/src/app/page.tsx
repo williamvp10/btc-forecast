@@ -28,6 +28,7 @@ import {
   trainModel,
   type Candle,
   type PredictResponse,
+  type TrainJobStatusResponse,
   type TrainResponse,
 } from "@/lib/api"
 import { formatDateUTC, formatPct, formatPrice, formatVolume } from "@/lib/format"
@@ -74,6 +75,8 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
   const [trainLoading, setTrainLoading] = React.useState(false)
   const [predictLoading, setPredictLoading] = React.useState(false)
   const [trainStage, setTrainStage] = React.useState<string | null>(null)
+  const [trainProgressPct, setTrainProgressPct] = React.useState<number | null>(null)
+  const [trainJob, setTrainJob] = React.useState<TrainJobStatusResponse | null>(null)
   const [lastTrain, setLastTrain] = React.useState<TrainResponse | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [trainError, setTrainError] = React.useState<string | null>(null)
@@ -231,19 +234,60 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
   const trainFeatures =
     asStringArray(trainMetrics?.features_used) || asStringArray(trainParamsObj?.feature_cols)
 
+  const trainStageDetails = React.useMemo(() => {
+    const details = asRecord(trainJob?.stage_details ?? null)
+    if (!details) return []
+
+    const lines: string[] = []
+    const candlesRows = asNumber(details.candles_rows)
+    const featureRows = asNumber(details.feature_rows)
+    const macroRows = asNumber(details.macro_rows)
+    const fgiRows = asNumber(details.fgi_rows)
+    const epoch = asNumber(details.epoch)
+    const maxEpochs = asNumber(details.max_epochs)
+    const trainLoss = asNumber(details.train_loss)
+    const valLoss = asNumber(details.val_loss)
+    const bestValLoss = asNumber(details.best_val_loss)
+    const trainSamples = asNumber(details.train_samples)
+    const valSamples = asNumber(details.val_samples)
+    const modelId = asString(details.model_id)
+
+    if (candlesRows != null || featureRows != null || macroRows != null || fgiRows != null) {
+      lines.push(
+        `Refresh: candles ${candlesRows ?? 0}, features ${featureRows ?? 0}, macro ${macroRows ?? 0}, fgi ${fgiRows ?? 0}`,
+      )
+    }
+    if (trainSamples != null || valSamples != null) {
+      lines.push(`Muestras: train ${trainSamples ?? 0}, val ${valSamples ?? 0}`)
+    }
+    if (epoch != null && maxEpochs != null) {
+      lines.push(`Epoch: ${epoch}/${maxEpochs}`)
+    }
+    if (trainLoss != null || valLoss != null || bestValLoss != null) {
+      lines.push(
+        `Loss: train ${formatMetric(trainLoss)}, val ${formatMetric(valLoss)}, best ${formatMetric(bestValLoss)}`,
+      )
+    }
+    if (modelId) {
+      lines.push(`Model ID: ${modelId}`)
+    }
+    return lines
+  }, [trainJob])
+
   const pollTrainJob = React.useCallback(
     async (jobId: string, attempt = 0) => {
       try {
         const job = await getTrainJobStatus(jobId)
+        setTrainJob(job)
+        setTrainStage(job.message)
+        setTrainProgressPct(job.progress_pct)
 
         if (job.status === "queued") {
-          setTrainStage("Entrenamiento en cola...")
           trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId), 1500))
           return
         }
 
         if (job.status === "running") {
-          setTrainStage("Entrenando modelo...")
           trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId), 3000))
           return
         }
@@ -251,6 +295,7 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
         clearTrainTimers()
         setTrainLoading(false)
         setTrainStage(null)
+        setTrainProgressPct(job.progress_pct ?? null)
 
         if (job.status === "success" && job.result) {
           setLastTrain(job.result)
@@ -267,12 +312,14 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
         const msg = e instanceof Error ? e.message : "Error consultando el estado del entrenamiento"
         if (attempt < 10) {
           setTrainStage("Esperando estado del entrenamiento...")
+          setTrainProgressPct(null)
           trainTimersRef.current.push(window.setTimeout(() => void pollTrainJob(jobId, attempt + 1), 3000))
           return
         }
         clearTrainTimers()
         setTrainLoading(false)
         setTrainStage(null)
+        setTrainProgressPct(null)
         setTrainError(msg)
         toast.error(msg)
       }
@@ -299,7 +346,9 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
   async function handleTrain() {
     setTrainLoading(true)
     setTrainError(null)
+    setTrainJob(null)
     setTrainStage("Preparando entrenamiento...")
+    setTrainProgressPct(0)
     clearTrainTimers()
     try {
       const job = await trainModel({
@@ -317,13 +366,14 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
         seed: Number(trainParams.seed),
         holdout_from: trainParams.holdout_from,
       })
-      setTrainStage(job.existing_job ? "Entrenamiento ya en progreso..." : "Entrenamiento en cola...")
+      setTrainStage(job.existing_job ? "Entrenamiento ya en progreso..." : job.message)
       toast.success(job.message)
       void pollTrainJob(job.job_id)
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error entrenando modelo"
       setTrainError(msg)
       setTrainStage(null)
+      setTrainProgressPct(null)
       setTrainLoading(false)
       toast.error(msg)
     }
@@ -333,7 +383,14 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <LoadingOverlay open={trainLoading} scope="page" title="Entrenando modelo" message={trainStage ?? "Por favor espera..."} />
+      <LoadingOverlay
+        open={trainLoading}
+        scope="page"
+        title="Entrenando modelo"
+        message={trainStage ?? "Por favor espera..."}
+        progressPct={trainProgressPct}
+        details={trainStageDetails}
+      />
       <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-col">
@@ -481,6 +538,34 @@ function HomeView({ initialTab = "dashboard" }: { initialTab?: TabKey }) {
                     <Button variant="outline" onClick={() => void handleTrain()} disabled={trainLoading}>
                       Reintentar
                     </Button>
+                  </div>
+                ) : null}
+                {trainJob ? (
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={trainJob.status === "failed" ? "destructive" : trainJob.status === "success" ? "success" : "secondary"}>
+                        {trainJob.status}
+                      </Badge>
+                      <Badge variant="outline">{trainJob.stage}</Badge>
+                      <div className="text-xs text-muted-foreground">job_id: {trainJob.job_id}</div>
+                    </div>
+                    <div className="mt-2 text-sm">{trainJob.message}</div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+                        style={{ width: `${Math.max(0, Math.min(100, trainJob.progress_pct ?? 0))}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {Math.max(0, Math.min(100, trainJob.progress_pct ?? 0)).toFixed(0)}%
+                    </div>
+                    {trainStageDetails.length ? (
+                      <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+                        {trainStageDetails.map((item) => (
+                          <div key={item}>{item}</div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="grid gap-3 md:grid-cols-3">

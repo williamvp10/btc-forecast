@@ -1,8 +1,8 @@
 import hashlib
 import os
 import random
-from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -198,7 +198,21 @@ def train_model(
     min_delta: float = 1e-4,
     seed: int = 42,
     holdout_from: str = "2025-06-01",
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> ModelArtifact:
+    def emit(stage: str, message: str, progress_pct: float, details: dict[str, Any] | None = None) -> None:
+        if progress_callback is None:
+            return
+        progress_callback(
+            {
+                "stage": stage,
+                "message": message,
+                "progress_pct": float(progress_pct),
+                "stage_details": details or {},
+            }
+        )
+
+    emit("loading_data", "Leyendo features y velas desde la base de datos...", 28.0)
     m = db.query(Market).filter(Market.symbol == symbol).first()
     if not m:
         raise ValueError("Market not found")
@@ -224,6 +238,7 @@ def train_model(
     candles_df["timestamp"] = pd.to_datetime(candles_df["timestamp"], utc=True)
     targets_df = _compute_structured_targets(candles_df)
 
+    emit("preparing_dataset", "Alineando features con targets estructurados...", 34.0)
     feat_df = pd.DataFrame(
         [{"timestamp": f.open_time, **(f.values or {})} for f in feats]
     )
@@ -246,6 +261,12 @@ def train_model(
     y_std = np.where(y_std < 1e-12, 1.0, y_std)
     ys = (y - y_mean) / y_std
 
+    emit(
+        "building_sequences",
+        "Construyendo secuencias de entrenamiento y validación...",
+        40.0,
+        {"feature_rows": int(len(merged)), "lookback": int(lookback), "in_features": int(X.shape[1])},
+    )
     n = len(merged) - 1
     X_seq = []
     y_seq = []
@@ -289,6 +310,12 @@ def train_model(
     close_val = list(np.asarray(close_t_seq, dtype=float)[val_mask.to_numpy()])
     y_true_ohlcv_val = y_true_ohlcv_seq[val_mask.to_numpy()]
 
+    emit(
+        "initializing_model",
+        "Inicializando modelo transformer y optimizador...",
+        45.0,
+        {"train_samples": int(len(X_train)), "val_samples": int(len(X_val)), "max_epochs": int(max_epochs)},
+    )
     random.seed(int(seed))
     np.random.seed(int(seed))
     torch.manual_seed(int(seed))
@@ -323,6 +350,7 @@ def train_model(
     best_state = None
     bad_epochs = 0
 
+    emit("training", "Entrenando modelo...", 50.0, {"epoch": 0, "max_epochs": int(max_epochs)})
     for epoch in range(1, int(max_epochs) + 1):
         model.train()
         train_losses = []
@@ -364,6 +392,23 @@ def train_model(
 
         scheduler.step(val_loss)
 
+        epoch_progress = 50.0 + (float(epoch) / max(1.0, float(max_epochs))) * 35.0
+        emit(
+            "training",
+            f"Epoch {epoch}/{int(max_epochs)} completada",
+            epoch_progress,
+            {
+                "epoch": int(epoch),
+                "max_epochs": int(max_epochs),
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "lr": lr_now,
+                "best_val_loss": best_val,
+                "bad_epochs": int(bad_epochs),
+                "patience": int(patience),
+            },
+        )
+
         if epoch >= int(min_epochs) and bad_epochs >= int(patience):
             break
 
@@ -371,6 +416,7 @@ def train_model(
         model.load_state_dict(best_state)
     best_epoch = int(np.argmin(np.asarray(history["val_loss"], dtype=float)) + 1) if history["val_loss"] else None
 
+    emit("evaluating", "Calculando métricas de validación...", 88.0)
     model.eval()
     with torch.no_grad():
         pred_val_s = []
@@ -431,6 +477,7 @@ def train_model(
     data_start = pd.to_datetime(min(ts), utc=True).to_pydatetime()
     data_end = pd.to_datetime(max(ts), utc=True).to_pydatetime()
 
+    emit("saving_artifact", "Guardando artefacto del modelo y activándolo...", 94.0)
     model_dir = os.path.join(os.getcwd(), "model_store")
     os.makedirs(model_dir, exist_ok=True)
     artifact = ModelArtifact(
@@ -515,4 +562,5 @@ def train_model(
     artifact.checksum = _sha256_file(out_path)
     db.commit()
     db.refresh(artifact)
+    emit("completed", "Entrenamiento finalizado correctamente.", 100.0, {"model_id": str(artifact.id)})
     return artifact

@@ -22,7 +22,7 @@ services:
       resources:
         limits:
           cpus: "2.0"
-          memory: 1.5G
+          memory: 2G
 
   backend:
     build:
@@ -52,8 +52,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 3G
+          cpus: "6.0"
+          memory: 14G
 
   frontend:
     build:
@@ -82,7 +82,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 1G
+          memory: 2G
 
 volumes:
   postgres_data:
